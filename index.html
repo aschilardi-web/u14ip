@@ -1009,6 +1009,7 @@ function App() {
   const [allMatchData, setAllMatchData] = useState({});
   const [matchConfig, setMatchConfig] = useState(null); // overrides/additions/removed
   const [season, setSeason] = useState(SEASON_DEFAULT);
+  window.__season = season;
   const [loading, setLoading] = useState(true);
   const [openMatchId, setOpenMatchId] = useState(null);
 
@@ -1162,7 +1163,25 @@ function Header({
       background: `linear-gradient(135deg, ${C.navyDark} 0%, ${C.navyLight} 100%)`,
       color: C.white,
       padding: '20px 16px 16px',
-      borderBottom: '3px solid #ea580c'
+      borderBottom: '3px solid #ea580c',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12
+    }
+  }, s.logo && /*#__PURE__*/React.createElement("img", {
+    src: s.logo,
+    alt: "",
+    style: {
+      height: 46,
+      width: 'auto',
+      background: '#fff',
+      borderRadius: 8,
+      padding: 3,
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1179,7 +1198,7 @@ function Header({
       marginTop: 3,
       letterSpacing: -0.3
     }
-  }, s.team));
+  }, s.team)));
 }
 function BottomNav({
   tab,
@@ -1252,6 +1271,129 @@ function BottomNav({
 
 // ── Suivi cartons jaunes cumulés sur la saison ────────────────────────────
 // Règle ACFF : les jaunes en amical ne comptent PAS pour les suspensions
+// ── Helpers impression PDF (logo, numéros de page, rapports) ──────────────
+const PAGE_NUM_CSS = '@page { @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #94a3b8; } }';
+function logoHtml(h) {
+  const l = window.__season && window.__season.logo;
+  return l ? `<img src="${l}" style="height:${h || 36}px;width:auto;margin-right:12px;vertical-align:middle;background:#fff;border-radius:4px;padding:2px">` : '';
+}
+function escHtml(v) {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function openPrintWindow(html) {
+  const w = window.open('', '_blank');
+  if (!w) { window.alert('Autorise les fenêtres pop-up pour générer le PDF.'); return; }
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 400);
+}
+function printPage(title, subtitle, body) {
+  const sc = window.__season || SEASON_DEFAULT;
+  openPrintWindow(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${escHtml(title)} — ${escHtml(sc.team)}</title>
+<style>
+  @page { size: A4; margin: 12mm 12mm; }
+  ${PAGE_NUM_CSS}
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; color: #1e293b; font-size: 9.5pt; margin: 0; }
+  .header { background: #0d2a4d; color: #fff; padding: 12px 16px; border-radius: 4px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .club { font-size: 14pt; font-weight: 900; } .sub { font-size: 8.5pt; opacity: .75; }
+  h2 { font-size: 10pt; text-transform: uppercase; letter-spacing: 1px; color: #0d2a4d; border-bottom: 2px solid #ff7a1a; padding-bottom: 3px; margin: 14px 0 6px; }
+  .kpis { display: flex; gap: 8px; margin-bottom: 8px; }
+  .kpi { flex: 1; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; text-align: center; }
+  .kpi b { display: block; font-size: 15pt; color: #0d2a4d; } .kpi span { font-size: 7.5pt; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+  th { background: #0d2a4d; color: #fff; padding: 5px 6px; font-size: 7.5pt; text-transform: uppercase; text-align: left; }
+  td { padding: 5px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  tr:nth-child(even) td { background: #f8fafc; } tr { page-break-inside: avoid; }
+  .c { text-align: center; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 8pt; font-weight: 700; color: #fff; }
+  .V { background: #16a34a; } .N { background: #64748b; } .D { background: #dc2626; } .S { background: #dc2626; } .P { background: #f59e0b; }
+  .note { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 8px 12px; font-size: 9pt; color: #92400e; margin: 8px 0; }
+  .footer { margin-top: 14px; padding-top: 6px; border-top: 1px solid #e2e8f0; font-size: 7.5pt; color: #94a3b8; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style></head><body>
+<div class="header">
+  <div style="display:flex;align-items:center">${logoHtml(40)}<div><div class="club">${escHtml(sc.team)}</div><div class="sub">${escHtml(sc.category)} · Saison ${escHtml(sc.year)}</div></div></div>
+  <div style="text-align:right"><div class="sub">${escHtml(title)}</div><div class="sub">${escHtml(subtitle)} · généré le ${new Date().toLocaleDateString('fr-BE')}</div></div>
+</div>
+${body}
+<div class="footer">${escHtml(sc.team)} · ${escHtml(sc.category)} · Saison ${escHtml(sc.year)}</div>
+</body></html>`);
+}
+function matchScore(md) {
+  const ev = (md && md.events) || [];
+  return { gf: ev.filter(e => e.type === 'goal').length, ga: ev.filter(e => e.type === 'goal_against').length };
+}
+// Rapport mensuel : résultats, buteurs, cartons, prochains matchs
+function printMonthlyReport(allMatchData, players, monthKey) {
+  const pn = id => { const p = players.find(x => x.id === id); return p ? `${escHtml(splitName(p.name).last)} ${escHtml(splitName(p.name).first)}` : '?'; };
+  const key = m => { const [, mm, yy] = m.date.split('/'); return `${yy}-${mm}`; };
+  const month = MATCHES.filter(m => key(m) === monthKey).sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date));
+  const done = month.filter(m => allMatchData[m.id]?.status === 'finished');
+  const label = new Date(monthKey + '-01').toLocaleDateString('fr-BE', { month: 'long', year: 'numeric' });
+  let v = 0, n = 0, d = 0, gf = 0, ga = 0;
+  const scorers = {}, assists = {}, cards = [];
+  const rows = month.map(m => {
+    const md = allMatchData[m.id];
+    const fin = md?.status === 'finished';
+    let res = '<td class="c">—</td><td></td>';
+    if (fin) {
+      const sc = matchScore(md);
+      gf += sc.gf; ga += sc.ga;
+      const r = sc.gf > sc.ga ? 'V' : sc.gf < sc.ga ? 'D' : 'N';
+      if (m.type === 'championnat') { if (r === 'V') v++; else if (r === 'D') d++; else n++; }
+      res = `<td class="c"><b>${sc.gf} – ${sc.ga}</b></td><td class="c"><span class="pill ${r}">${r}</span></td>`;
+      (md.events || []).forEach(e => {
+        if (e.type === 'goal') { scorers[e.player] = (scorers[e.player] || 0) + 1; if (e.assist) assists[e.assist] = (assists[e.assist] || 0) + 1; }
+        if (e.type === 'yellow' || e.type === 'red') cards.push(`${e.type === 'yellow' ? '🟨' : '🟥'} ${pn(e.player)} (${escHtml(m.opponent)})`);
+      });
+    }
+    return `<tr><td>${escHtml(m.date)}</td><td>${m.type === 'championnat' ? 'Champ.' : 'Amical'}</td><td>${m.venue === 'DOM' ? 'Dom.' : 'Ext.'}</td><td><b>${escHtml(m.opponent)}</b></td>${res}</tr>`;
+  }).join('');
+  const list = o => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([id, c]) => `${pn(parseInt(id))} (${c})`).join(' · ') || '—';
+  const today = new Date();
+  const upcoming = MATCHES.filter(m => allMatchData[m.id]?.status !== 'finished' && parseDateEU(m.date) >= new Date(today.getFullYear(), today.getMonth(), today.getDate())).sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date)).slice(0, 4);
+  const body = `
+<div class="kpis">
+  <div class="kpi"><b>${done.length}</b><span>Matchs joués</span></div>
+  <div class="kpi"><b>${v}-${n}-${d}</b><span>V-N-D (champ.)</span></div>
+  <div class="kpi"><b>${gf}</b><span>Buts marqués</span></div>
+  <div class="kpi"><b>${ga}</b><span>Buts encaissés</span></div>
+</div>
+<h2>Résultats du mois</h2>
+<table><tr><th>Date</th><th>Type</th><th>Lieu</th><th>Adversaire</th><th class="c">Score</th><th class="c"></th></tr>${rows || '<tr><td colspan="6">Aucun match ce mois-ci.</td></tr>'}</table>
+<h2>Buteurs</h2><div>${list(scorers)}</div>
+<h2>Passeurs</h2><div>${list(assists)}</div>
+<h2>Cartons</h2><div>${cards.join(' · ') || 'Aucun carton.'}</div>
+<h2>Prochains matchs</h2>
+<table><tr><th>Date</th><th>Heure</th><th>Type</th><th>Lieu</th><th>Adversaire</th></tr>${upcoming.map(m => `<tr><td>${escHtml(m.date)}</td><td>${escHtml(m.time || '')}</td><td>${m.type === 'championnat' ? 'Champ.' : 'Amical'}</td><td>${m.venue === 'DOM' ? 'Domicile' : 'Extérieur'}</td><td><b>${escHtml(m.opponent)}</b></td></tr>`).join('') || '<tr><td colspan="5">—</td></tr>'}</table>`;
+  printPage('Rapport mensuel', label.charAt(0).toUpperCase() + label.slice(1), body);
+}
+// Discipline : compteur de jaunes, suspensions, décisions en attente
+function printDisciplineReport(allMatchData, players) {
+  const disc = computeDiscipline(allMatchData);
+  const champ = MATCHES.filter(m => m.type === 'championnat').sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date));
+  const nextC = nextChampMatch(allMatchData);
+  const upcoming = champ.filter(m => allMatchData[m.id]?.status !== 'finished');
+  const nm = p => `<b>${escHtml(splitName(p.name).last)}</b> ${escHtml(splitName(p.name).first)}`;
+  const suspLines = upcoming.map(m => ({ m, list: players.filter(p => (disc.suspBy[m.id] || []).includes(p.id)) })).filter(x => x.list.length);
+  const pend = players.filter(p => disc.pending[p.id] != null);
+  let tot = {};
+  champ.forEach(m => { const md = allMatchData[m.id]; if (md?.status === 'finished') (md.events || []).forEach(e => { if (e.type === 'yellow' || e.type === 'red') { tot[e.player] = tot[e.player] || { y: 0, r: 0 }; tot[e.player][e.type === 'yellow' ? 'y' : 'r']++; } }); });
+  const rows = players.filter(p => tot[p.id] || disc.counter[p.id]).sort((a, b) => (disc.counter[b.id] || 0) - (disc.counter[a.id] || 0)).map(p => {
+    const isS = nextC && (disc.suspBy[nextC.id] || []).includes(p.id);
+    const isP = disc.pending[p.id] != null;
+    return `<tr><td class="c">${p.number ?? ''}</td><td>${nm(p)}</td><td class="c">${(tot[p.id] || {}).y || 0}</td><td class="c">${(tot[p.id] || {}).r || 0}</td><td class="c"><b>${disc.counter[p.id] || 0} / 3</b></td><td>${isS ? '<span class="pill S">Suspendu prochain match</span>' : isP ? '<span class="pill P">Rouge : décision en attente</span>' : '—'}</td></tr>`;
+  }).join('');
+  const body = `
+${suspLines.length ? suspLines.map(x => `<div class="note"><b>${escHtml(x.m.date)} · ${escHtml(x.m.opponent)}</b> — suspendu${x.list.length > 1 ? 's' : ''} : ${x.list.map(p => escHtml(splitName(p.name).last)).join(', ')}</div>`).join('') : '<div class="note" style="background:#f0fdf4;border-color:#16a34a;color:#166534">Aucune suspension à venir.</div>'}
+${pend.length ? `<div class="note"><b>Décision de la commission en attente :</b> ${pend.map(p => escHtml(splitName(p.name).last)).join(', ')}</div>` : ''}
+<h2>Suivi des cartons (championnat)</h2>
+<table><tr><th class="c">N°</th><th>Joueur</th><th class="c">🟨 Jaunes</th><th class="c">🟥 Rouges</th><th class="c">Compteur</th><th>Statut</th></tr>${rows || '<tr><td colspan="6">Aucun carton enregistré.</td></tr>'}</table>
+<div class="footer" style="border:none;margin-top:6px">Règles : 3 jaunes (matchs différents) = 1 match de suspension, compteur remis à 0 · 2 jaunes dans le même match = exclusion, 1 match · rouge directe = décision de la commission.</div>`;
+  printPage('Discipline & suspensions', 'Championnat', body);
+}
+
 function computeDiscipline(allMatchData) {
   const champ = MATCHES.filter(m => m.type === 'championnat').sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date));
   const counter = {}, suspBy = {}, after = {}, pending = {};
@@ -4776,6 +4918,39 @@ function RedDecision({
     }
   }, "OK")));
 }
+// Texte de résultat à coller dans WhatsApp
+function ShareResultButton({
+  match,
+  scored,
+  conceded,
+  goalEvents,
+  pById
+}) {
+  const [copied, setCopied] = useState(false);
+  const sc = window.__season || SEASON_DEFAULT;
+  const emoji = scored > conceded ? '✅' : scored < conceded ? '❌' : '🟰';
+  const home = match.venue === 'DOM';
+  const line = home ? `${sc.team} ${scored} - ${conceded} ${match.opponent}` : `${match.opponent} ${conceded} - ${scored} ${sc.team}`;
+  const scorers = (goalEvents || []).map(e => `⚽ ${splitName(pById[e.player]?.name || '?').last} ${e.minute}′`).join('\n');
+  const text = `${emoji} ${sc.category} — ${match.type === 'championnat' ? 'Championnat' : 'Match amical'}\n${line}\n📅 ${match.date}${scorers ? '\n\n' + scorers : ''}`;
+  return /*#__PURE__*/React.createElement("button", {
+    onClick: async () => {
+      try { await navigator.clipboard.writeText(text); } catch { window.prompt('Copie ce texte :', text); }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    },
+    style: {
+      width: '100%',
+      padding: '10px 14px',
+      background: copied ? C.green : '#25d366',
+      color: C.white,
+      border: 'none',
+      fontSize: 12,
+      fontWeight: 700,
+      cursor: 'pointer'
+    }
+  }, copied ? '✓ Copié, colle dans WhatsApp' : '📲 Copier le résultat pour WhatsApp');
+}
 function MatchReport({
   match,
   data,
@@ -5353,7 +5528,13 @@ function MatchReport({
       padding: '6px 10px',
       border: `1px solid #bae6fd`
     }
-  }, val)) : null)), /*#__PURE__*/React.createElement("button", {
+  }, val)) : null)), /*#__PURE__*/React.createElement(ShareResultButton, {
+    match: match,
+    scored: scored,
+    conceded: conceded,
+    goalEvents: goalEvents,
+    pById: pById
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: () => setOpen(v => !v),
     style: {
       width: '100%',
@@ -5534,6 +5715,7 @@ function MatchReport({
 <title>Fiche de match · ${match.opponent} · ${match.date}</title>
 <style>
 @page { size: A4; margin: 12mm 14mm; }
+${PAGE_NUM_CSS}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 9.5pt; background: white; }
 
@@ -5589,9 +5771,9 @@ tr:nth-child(even) td { background: #f8fafc; }
 
 <!-- En-tête -->
 <div class="header">
-  <div class="header-left">
-    <div class="club-name">R. Olympic Club Charleroi</div>
-    <div class="club-sub">U14 IP · Saison 2026-2027</div>
+  <div class="header-left" style="display:flex;align-items:center">
+    ${logoHtml(40)}<div><div class="club-name">${escHtml((window.__season || SEASON_DEFAULT).team)}</div>
+    <div class="club-sub">${escHtml((window.__season || SEASON_DEFAULT).category)} · Saison ${escHtml((window.__season || SEASON_DEFAULT).year)}</div></div>
   </div>
   <div class="header-right">
     ${match.type === 'championnat' ? `Championnat · Journée ${match.id}` : 'Match amical'}<br>
@@ -6799,6 +6981,7 @@ function RotationView({
 <title>Rotation — ${s.team}</title>
 <style>
   @page { size: A4; margin: 15mm 12mm; }
+  ${PAGE_NUM_CSS}
   * { box-sizing: border-box; }
   body { font-family: Arial, sans-serif; color: #1e293b; font-size: 10pt; }
   .header { background: #0d2a4d; color: white; padding: 12px 16px; border-radius: 4px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
@@ -6816,7 +6999,7 @@ function RotationView({
 </style></head><body>
 <div class="header">
   <div>
-    <div class="club">${s.team}</div>
+    <div class="club">${logoHtml(30)}${s.team}</div>
     <div class="sub">${s.category} · Saison ${s.year}</div>
   </div>
   <div style="text-align:right">
@@ -7221,6 +7404,7 @@ function SeasonCharts({
 <title>Graphiques — ${s.team}</title>
 <style>
   @page { size: A4; margin: 15mm 12mm; }
+  ${PAGE_NUM_CSS}
   * { box-sizing: border-box; }
   body { font-family: Arial, sans-serif; color: #1e293b; font-size: 10pt; }
   .header { background: #0d2a4d; color: white; padding: 12px 16px; border-radius: 4px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
@@ -7243,7 +7427,7 @@ function SeasonCharts({
 
 <div class="header">
   <div>
-    <div class="club">${s.team}</div>
+    <div class="club">${logoHtml(30)}${s.team}</div>
     <div class="sub">${s.category} · Saison ${s.year}</div>
   </div>
   <div style="text-align:right">
@@ -8746,7 +8930,72 @@ function SettingsSeasonSection({
       outline: 'none',
       background: C.white
     }
-  }))), /*#__PURE__*/React.createElement("button", {
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      color: C.grey,
+      display: 'block',
+      marginBottom: 6,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5
+    }
+  }, "Logo du club (en-tête de l'app et des PDF)"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10
+    }
+  }, form.logo && /*#__PURE__*/React.createElement("img", {
+    src: form.logo,
+    alt: "",
+    style: {
+      height: 48,
+      background: C.greyBg,
+      borderRadius: 8,
+      padding: 3
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    onChange: e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+          const ratio = Math.min(240 / img.width, 240 / img.height, 1);
+          const cv = document.createElement('canvas');
+          cv.width = Math.round(img.width * ratio);
+          cv.height = Math.round(img.height * ratio);
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          setForm(f => ({ ...f, logo: cv.toDataURL('image/png') }));
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    },
+    style: {
+      fontSize: 12,
+      flex: 1,
+      minWidth: 0
+    }
+  }), form.logo && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setForm(f => ({ ...f, logo: '' })),
+    style: {
+      border: 'none',
+      background: C.greyBg,
+      borderRadius: 6,
+      padding: '6px 10px',
+      cursor: 'pointer',
+      fontSize: 12
+    }
+  }, "Retirer"))), /*#__PURE__*/React.createElement("button", {
     onClick: save,
     style: {
       width: '100%',
@@ -10389,6 +10638,12 @@ function StatsView({
   const [view, setView] = useState('classement'); // classement | rotation | charts | details
   const [sort, setSort] = useState('minutes');
   const [scope, setScope] = useState('all');
+  const monthOptions = useMemo(() => {
+    const set = new Set();
+    MATCHES.forEach(m => { const q = m.date.split('/'); set.add(`${q[2]}-${q[1]}`); });
+    return [...set].sort();
+  }, [allMatchData]);
+  const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
   const filteredData = useMemo(() => {
     if (scope === 'all') return allMatchData;
     const filtered = {};
@@ -10505,25 +10760,85 @@ function StatsView({
     return Math.max(1, ...stats.map(s => s[field] || 0));
   }, [stats, sort]);
   const totalFinished = Object.entries(filteredData).filter(([, d]) => d?.status === 'finished').length;
-  const exportCSV = () => {
-    const header = ['N°', 'Nom', 'Prénom', 'Poste', 'Matchs', 'Titulaire', 'Minutes', 'Moy/match', 'Buts', 'Passes', 'Jaunes', 'Rouges', 'CS'];
-    const rows = stats.map(s => {
-      const {
-        last,
-        first
-      } = splitName(s.name);
-      return [s.number ?? '', last, first, s.position || '', s.matches, s.starts, s.minutes, s.avg, s.goals, s.assists, s.yellows, s.reds, s.cleanSheets];
-    });
-    const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
-    const blob = new Blob(['\ufeff' + csv], {
-      type: 'text/csv;charset=utf-8;'
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `U14IP_stats_${scope}_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportPDF = () => {
+    const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const sc = season || SEASON_DEFAULT;
+    const scopeLabel = scope === 'championnat' ? 'Championnat' : scope === 'amical' ? 'Matchs amicaux' : 'Tous les matchs';
+    const played = stats.filter(x => x.matches > 0 || x.minutes > 0).sort((x, y) => y.minutes - x.minutes);
+    const top = (field, label) => {
+      const l = [...played].filter(x => x[field] > 0).sort((x, y) => y[field] - x[field] || y.minutes - x.minutes).slice(0, 3);
+      const medals = ['🥇', '🥈', '🥉'];
+      return `<div class="top"><div class="tl">${label}</div>${l.length ? l.map((x, i) => `<div class="tr"><span>${medals[i]} ${esc(splitName(x.name).last)} ${esc(splitName(x.name).first)}</span><b>${x[field]}</b></div>`).join('') : '<div class="tr" style="color:#94a3b8">—</div>'}</div>`;
+    };
+    const maxMin = Math.max(1, ...played.map(x => x.minutes));
+    const rows = played.map((x, i) => {
+      const nm = splitName(x.name);
+      return `<tr>
+        <td class="c">${x.number ?? ''}</td>
+        <td class="c">${esc(x.position || '')}</td>
+        <td><b>${esc(nm.last)}</b> ${esc(nm.first)}</td>
+        <td class="c">${x.matches}</td><td class="c">${x.starts}</td>
+        <td class="c">${x.minutes}</td>
+        <td><div style="height:7px;width:${Math.round(x.minutes / maxMin * 60)}px;background:#ff7a1a;border-radius:3px"></div></td>
+        <td class="c">${x.avg}</td>
+        <td class="c">${x.goals || '·'}</td><td class="c">${x.assists || '·'}</td>
+        <td class="c">${x.yellows ? '<span class="y"></span>' + x.yellows : '·'}</td>
+        <td class="c">${x.reds ? '<span class="r"></span>' + x.reds : '·'}</td>
+        <td class="c">${x.cleanSheets || '·'}</td></tr>`;
+    }).join('');
+    const sum = f => played.reduce((t, x) => t + (x[f] || 0), 0);
+    const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>Statistiques — ${esc(sc.team)}</title>
+<style>
+  @page { size: A4; margin: 12mm 12mm; }
+  ${PAGE_NUM_CSS}
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; color: #1e293b; font-size: 9.5pt; margin: 0; }
+  .header { background: #0d2a4d; color: #fff; padding: 12px 16px; border-radius: 4px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .club { font-size: 14pt; font-weight: 900; } .sub { font-size: 8.5pt; opacity: .75; }
+  .kpis { display: flex; gap: 8px; margin-bottom: 12px; }
+  .kpi { flex: 1; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; text-align: center; }
+  .kpi b { display: block; font-size: 16pt; color: #0d2a4d; } .kpi span { font-size: 7.5pt; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+  .tops { display: flex; gap: 8px; margin-bottom: 12px; }
+  .top { flex: 1; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; }
+  .tl { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .8px; color: #ff7a1a; font-weight: 700; margin-bottom: 4px; }
+  .tr { display: flex; justify-content: space-between; font-size: 8.5pt; padding: 2px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+  th { background: #0d2a4d; color: #fff; padding: 5px 4px; font-size: 7.5pt; text-transform: uppercase; text-align: left; }
+  th.c, td.c { text-align: center; }
+  td { padding: 4px; border-bottom: 1px solid #f1f5f9; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  tr.tot td { background: #e2e8f0; font-weight: 700; border-top: 2px solid #0d2a4d; }
+  .y, .r { display: inline-block; width: 7px; height: 10px; border-radius: 1px; margin-right: 3px; vertical-align: middle; }
+  .y { background: #facc15; } .r { background: #dc2626; }
+  .footer { margin-top: 12px; padding-top: 6px; border-top: 1px solid #e2e8f0; font-size: 7.5pt; color: #94a3b8; display: flex; justify-content: space-between; }
+  tr { page-break-inside: avoid; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style></head><body>
+<div class="header">
+  <div><div class="club">${logoHtml(30)}${esc(sc.team)}</div><div class="sub">${esc(sc.category)} · Saison ${esc(sc.year)}</div></div>
+  <div style="text-align:right"><div class="sub">Rapport de statistiques · ${scopeLabel}</div><div class="sub">${totalFinished} match${totalFinished > 1 ? 's' : ''} terminé${totalFinished > 1 ? 's' : ''} · généré le ${new Date().toLocaleDateString('fr-BE')}</div></div>
+</div>
+<div class="kpis">
+  <div class="kpi"><b>${teamTotals.wins}-${teamTotals.draws}-${teamTotals.losses}</b><span>V - N - D (champ.)</span></div>
+  <div class="kpi"><b>${teamTotals.goalsFor}</b><span>Buts marqués</span></div>
+  <div class="kpi"><b>${teamTotals.goalsAgainst}</b><span>Buts encaissés</span></div>
+  <div class="kpi"><b>${teamTotals.goalsFor - teamTotals.goalsAgainst > 0 ? '+' : ''}${teamTotals.goalsFor - teamTotals.goalsAgainst}</b><span>Différence</span></div>
+  <div class="kpi"><b>${teamTotals.cleanSheets}</b><span>Clean sheets</span></div>
+</div>
+<div class="tops">${top('goals', 'Buteurs')}${top('assists', 'Passeurs')}${top('minutes', 'Temps de jeu (min)')}</div>
+<table>
+  <tr><th class="c">N°</th><th class="c">Pos.</th><th>Joueur</th><th class="c">Matchs</th><th class="c">Titul.</th><th class="c">Min.</th><th></th><th class="c">Moy.</th><th class="c">Buts</th><th class="c">Passes</th><th class="c">Jaunes</th><th class="c">Rouges</th><th class="c">CS</th></tr>
+  ${rows}
+  <tr class="tot"><td></td><td></td><td>Total équipe</td><td></td><td></td><td class="c">${sum('minutes')}</td><td></td><td></td><td class="c">${sum('goals')}</td><td class="c">${sum('assists')}</td><td class="c">${sum('yellows')}</td><td class="c">${sum('reds')}</td><td></td></tr>
+</table>
+<div class="footer"><span>${esc(sc.team)} · ${esc(sc.category)} · Saison ${esc(sc.year)}</span><span>Moy. = minutes par match joué · CS = clean sheets (gardiens)</span></div>
+</body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { window.alert('Autorise les fenêtres pop-up pour générer le PDF.'); return; }
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
   };
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -10593,7 +10908,7 @@ function StatsView({
       padding: '0 14px 24px'
     }
   }, /*#__PURE__*/React.createElement("button", {
-    onClick: exportCSV,
+    onClick: exportPDF,
     style: {
       width: '100%',
       padding: '11px',
@@ -10610,7 +10925,59 @@ function StatsView({
     }
   }, /*#__PURE__*/React.createElement(Download, {
     size: 14
-  }), " Export CSV complet"))), view === 'rotation' && /*#__PURE__*/React.createElement(RotationView, {
+  }), " Rapport PDF complet"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 6,
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("select", {
+    value: month,
+    onChange: e => setMonth(e.target.value),
+    style: {
+      flex: 1,
+      minWidth: 0,
+      padding: '10px 8px',
+      border: `1.5px solid ${C.greyLight}`,
+      borderRadius: 8,
+      fontSize: 12,
+      background: C.white,
+      color: C.navy
+    }
+  }, monthOptions.map(k => /*#__PURE__*/React.createElement("option", {
+    key: k,
+    value: k
+  }, new Date(k + '-01').toLocaleDateString('fr-BE', {
+    month: 'long',
+    year: 'numeric'
+  })))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => printMonthlyReport(allMatchData, players, month),
+    style: {
+      flex: 1.3,
+      padding: '10px',
+      background: C.orange,
+      color: C.white,
+      border: 'none',
+      borderRadius: 8,
+      fontSize: 12,
+      fontWeight: 700,
+      cursor: 'pointer'
+    }
+  }, "📅 Rapport du mois (PDF)")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => printDisciplineReport(allMatchData, players),
+    style: {
+      width: '100%',
+      marginTop: 8,
+      padding: '10px',
+      background: C.white,
+      color: C.navy,
+      border: `1.5px solid ${C.navy}`,
+      borderRadius: 8,
+      fontSize: 12,
+      fontWeight: 700,
+      cursor: 'pointer'
+    }
+  }, "🟨 Discipline & suspensions (PDF)"))), view === 'rotation' && /*#__PURE__*/React.createElement(RotationView, {
     allMatchData: filteredData,
     players: players,
     season: season
