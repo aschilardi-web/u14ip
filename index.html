@@ -1252,21 +1252,60 @@ function BottomNav({
 
 // ── Suivi cartons jaunes cumulés sur la saison ────────────────────────────
 // Règle ACFF : les jaunes en amical ne comptent PAS pour les suspensions
+function computeDiscipline(allMatchData) {
+  const champ = MATCHES.filter(m => m.type === 'championnat').sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date));
+  const counter = {}, suspBy = {}, after = {}, pending = {};
+  champ.forEach((match, i) => {
+    const md = allMatchData[match.id];
+    if (!md || md.status !== 'finished') return;
+    const ev = md.events || [];
+    const next = champ[i + 1];
+    after[match.id] = {};
+    const ids = new Set(ev.filter(e => e.type === 'yellow' || e.type === 'red').map(e => e.player));
+    ids.forEach(pid => {
+      const y = ev.filter(e => e.type === 'yellow' && e.player === pid).length;
+      const reds = ev.filter(e => e.type === 'red' && e.player === pid);
+      const dbl = y >= 2 || reds.some(e => e.fromDoubleYellow);
+      // rouge directe : le nombre de matchs dépend de la décision de la commission -> en attente
+      const direct = reds.length > 0 && !dbl;
+      let susp = dbl && reds.length > 0;
+      const dec = direct ? (md.redDecisions || {})[pid] : undefined;
+      if (direct && dec === undefined) pending[pid] = match.id;
+      let c = counter[pid] || 0;
+      // 2 jaunes dans le même match = exclusion : ces jaunes ne comptent pas dans le cumul
+      if (!dbl) {
+        c += y;
+        if (c >= 3) { c -= 3; susp = true; }
+      }
+      counter[pid] = c;
+      after[match.id][pid] = { count: c, susp, direct, decision: dec, pending: direct && dec === undefined };
+      if (susp && next) { (suspBy[next.id] = suspBy[next.id] || []).push(pid); }
+      // rouge directe jugée : suspendu pour le nombre de matchs décidé
+      if (direct && dec > 0) {
+        for (let k = 1; k <= dec; k++) { const t = champ[i + k]; if (t) (suspBy[t.id] = suspBy[t.id] || []).push(pid); }
+        after[match.id][pid].susp = true;
+      }
+    });
+  });
+  return { counter, suspBy, after, pending };
+}
+// Compteur de jaunes (0, 1, 2) avant la prochaine suspension
 function computeYellowTotals(allMatchData, players) {
   const totals = {};
-  players.forEach(p => {
-    totals[p.id] = 0;
-  });
-  const sorted = [...MATCHES].sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date));
-  for (const match of sorted) {
-    if (match.type !== 'championnat') continue; // amicaux exclus
-    const md = allMatchData[match.id];
-    if (!md || md.status !== 'finished') continue;
-    for (const e of md.events || []) {
-      if (e.type === 'yellow') totals[e.player] = (totals[e.player] || 0) + 1;
-    }
-  }
-  return totals; // { playerId: totalJaunes en championnat }
+  players.forEach(p => { totals[p.id] = 0; });
+  const d = computeDiscipline(allMatchData);
+  Object.keys(d.counter).forEach(k => { totals[k] = d.counter[k]; });
+  return totals;
+}
+// Prochain match de championnat non terminé
+function nextChampMatch(allMatchData) {
+  return MATCHES.filter(m => m.type === 'championnat').sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date)).find(m => allMatchData[m.id]?.status !== 'finished');
+}
+// Numéros saisis dans les fenêtres feuille / composition -> overrides du match
+function mergeNumOverrides(d, nums) {
+  const ov = { ...(d.playerOverrides || {}) };
+  Object.keys(nums || {}).forEach(id => { ov[id] = { ...(ov[id] || {}), number: nums[id] }; });
+  return ov;
 }
 function MatchesList({
   matches,
@@ -1275,6 +1314,7 @@ function MatchesList({
   onOpen
 }) {
   const yellowTotals = useMemo(() => computeYellowTotals(allMatchData, players), [allMatchData, players]);
+  const disc = useMemo(() => computeDiscipline(allMatchData), [allMatchData]);
   const today = new Date();
 
   // Trouver le prochain match non terminé
@@ -1525,7 +1565,7 @@ function MatchesList({
     size: 20,
     color: "rgba(255,255,255,0.4)"
   })), (() => {
-    const susp = players.filter(p => yellowTotals[p.id] > 0 && yellowTotals[p.id] % 3 === 0);
+    const susp = nextMatch.type === 'championnat' ? players.filter(p => (disc.suspBy[nextMatch.id] || []).includes(p.id)) : [];
     return susp.length > 0 ? /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: 10,
@@ -1605,7 +1645,7 @@ function MatchesList({
         gap: 6
       }
     }, gm.map(m => {
-      const suspended = players.filter(p => yellowTotals[p.id] > 0 && yellowTotals[p.id] % 3 === 0);
+      const suspended = m.type === 'championnat' && allMatchData[m.id]?.status !== 'finished' ? players.filter(p => (disc.suspBy[m.id] || []).includes(p.id)) : [];
       return /*#__PURE__*/React.createElement("button", {
         key: m.id,
         onClick: () => onOpen(m.id),
@@ -2519,6 +2559,9 @@ function PlayersScreen({
   const sorted = [...players].sort(byNumber);
   const withNumber = players.filter(p => p.number != null).length;
   const yellowTotals = useMemo(() => computeYellowTotals(allMatchData || {}, players), [allMatchData, players]);
+  const discT = useMemo(() => computeDiscipline(allMatchData || {}), [allMatchData]);
+  const nextChampT = nextChampMatch(allMatchData || {});
+  const isSuspT = pid => !!nextChampT && (discT.suspBy[nextChampT.id] || []).includes(pid);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       paddingBottom: 100
@@ -2636,17 +2679,17 @@ function PlayersScreen({
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap'
       }
-    }, last), (yellowTotals[p.id] || 0) > 0 && /*#__PURE__*/React.createElement("span", {
+    }, last), ((yellowTotals[p.id] || 0) > 0 || isSuspT(p.id) || discT.pending[p.id] != null) && /*#__PURE__*/React.createElement("span", {
       style: {
-        background: yellowTotals[p.id] % 3 === 0 ? C.red : C.yellow,
-        color: yellowTotals[p.id] % 3 === 0 ? C.white : C.navyDark,
+        background: isSuspT(p.id) ? C.red : discT.pending[p.id] != null ? C.orange : C.yellow,
+        color: isSuspT(p.id) || discT.pending[p.id] != null ? C.white : C.navyDark,
         fontSize: 9,
         fontWeight: 800,
         padding: '1px 5px',
         borderRadius: 3,
         flexShrink: 0
       }
-    }, yellowTotals[p.id] % 3 === 0 ? `SUSP 🟡${yellowTotals[p.id]}` : `🟡${yellowTotals[p.id]} champ.`)), /*#__PURE__*/React.createElement("div", {
+    }, isSuspT(p.id) ? `SUSP 🟡${yellowTotals[p.id]}` : discT.pending[p.id] != null ? `🟥 décision en attente` : `🟡${yellowTotals[p.id]} champ.`)), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: C.grey,
@@ -3265,7 +3308,11 @@ function MatchEncoder({
     players: players,
     duration: duration,
     periods: periods,
-    allMatchData: allMatchData || {}
+    allMatchData: allMatchData || {},
+    onRedDecision: (pid, n) => setData(d => ({
+      ...d,
+      redDecisions: { ...(d.redDecisions || {}), [pid]: n }
+    }))
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       margin: '20px 12px 0'
@@ -3356,27 +3403,29 @@ function MatchEncoder({
       background: C.white
     }
   }))), modal === 'squad' && /*#__PURE__*/React.createElement(SquadModal, {
-    players: players,
+    players: resolvedPlayers,
     currentSquad: data.squad,
     maxSquad: maxSquad,
     matchType: match.type,
-    onSave: squad => {
+    onSave: (squad, nums) => {
       const newLineup = data.startingLineup.filter(id => squad.includes(id));
       setData(d => ({
         ...d,
         squad,
-        startingLineup: newLineup
+        startingLineup: newLineup,
+        playerOverrides: mergeNumOverrides(d, nums)
       }));
       setModal(null);
     },
     onClose: () => setModal(null)
   }), modal === 'lineup' && /*#__PURE__*/React.createElement(LineupModal, {
-    players: players,
+    players: resolvedPlayers,
     squad: data.squad,
     currentLineup: data.startingLineup,
-    onSave: lineup => {
+    onSave: (lineup, nums) => {
       setData(d => ({
         ...d,
+        playerOverrides: mergeNumOverrides(d, nums),
         startingLineup: lineup,
         status: d.status === 'not_started' ? 'in_progress' : d.status
       }));
@@ -3384,7 +3433,7 @@ function MatchEncoder({
     },
     onClose: () => setModal(null)
   }), modal === 'sub' && /*#__PURE__*/React.createElement(SubModal, {
-    players: players,
+    players: resolvedPlayers,
     squad: data.squad,
     onField: onField,
     defaultMinute: effectiveMinute,
@@ -4653,13 +4702,88 @@ const EVENT_STYLES = {
 // Rapport post-match
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Décision de la commission après une rouge directe (nombre de matchs de suspension)
+function RedDecision({
+  value,
+  onSave
+}) {
+  const [v, setV] = useState(value === undefined ? '' : String(value));
+  const [edit, setEdit] = useState(value === undefined);
+  if (!edit) return /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEdit(true),
+    style: {
+      background: value > 0 ? C.red : C.grey,
+      color: C.white,
+      border: 'none',
+      fontSize: 9,
+      fontWeight: 800,
+      padding: '3px 7px',
+      borderRadius: 5,
+      lineHeight: 1.3
+    }
+  }, value > 0 ? `SUSP ${value} MATCH${value > 1 ? 'S' : ''}` : 'PAS DE SUSP.', /*#__PURE__*/React.createElement("br", null), "✎ modifier");
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 3,
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      fontWeight: 800,
+      color: C.orange,
+      textAlign: 'center',
+      lineHeight: 1.2
+    }
+  }, "ROUGE · décision", /*#__PURE__*/React.createElement("br", null), "(nb de matchs)"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    inputMode: "numeric",
+    min: 0,
+    max: 99,
+    value: v,
+    onChange: e => setV(e.target.value),
+    style: {
+      width: 40,
+      height: 26,
+      textAlign: 'center',
+      border: `1.5px solid ${C.orange}`,
+      borderRadius: 5,
+      fontSize: 13,
+      fontWeight: 700
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      const n = parseInt(v);
+      if (isNaN(n) || n < 0) return;
+      onSave(n);
+      setEdit(false);
+    },
+    style: {
+      background: C.navy,
+      color: C.white,
+      border: 'none',
+      borderRadius: 5,
+      padding: '0 8px',
+      fontSize: 12,
+      fontWeight: 700
+    }
+  }, "OK")));
+}
 function MatchReport({
   match,
   data,
   players,
   duration,
   periods,
-  allMatchData
+  allMatchData,
+  onRedDecision
 }) {
   const [open, setOpen] = useState(false);
   // Profils joueurs résolus pour CE match (numéros et positions per-match)
@@ -4708,6 +4832,7 @@ function MatchReport({
 
   // ── Bilan saison (championnat uniquement) pour top 3 + suspensions ──
   const seasonStats = useMemo(() => computeYellowTotals(allMatchData, players), [allMatchData, players]);
+  const discR = useMemo(() => computeDiscipline(allMatchData), [allMatchData]);
   const seasonFull = useMemo(() => players.map(p => {
     let goals = 0,
       assists = 0,
@@ -4735,7 +4860,7 @@ function MatchReport({
   const top3 = field => [...seasonFull].filter(p => p[field] > 0).sort((a, b) => b[field] - a[field]).slice(0, 3);
 
   // Suspensions : joueurs avec cumul jaunes multiple de 3 après ce match
-  const suspended = players.filter(p => (seasonStats[p.id] || 0) > 0 && (seasonStats[p.id] || 0) % 3 === 0);
+  const suspended = players.filter(p => discR.after[match.id]?.[p.id]?.susp);
   const fmt = e => {
     if (!e) return null;
     if (e.starter) return {
@@ -4974,8 +5099,9 @@ function MatchReport({
     }
   }, "📋 Bilan disciplinaire"), [...yelEvents, ...redEvents].sort((a, b) => a.minute - b.minute).map((e, i) => {
     const p = pById[e.player];
-    const cumul = seasonStats[e.player] || 0;
-    const isSusp = cumul > 0 && cumul % 3 === 0;
+    const cumul = discR.after[match.id]?.[e.player]?.count ?? 0;
+    const isSusp = !!discR.after[match.id]?.[e.player]?.susp;
+    const isPend = !!discR.after[match.id]?.[e.player]?.pending;
     return /*#__PURE__*/React.createElement("div", {
       key: e.id || i,
       style: {
@@ -5018,7 +5144,7 @@ function MatchReport({
         fontSize: 10,
         color: C.grey
       }
-    }, p?.position || '—', " · Cumul saison (champ.) : ", /*#__PURE__*/React.createElement("b", {
+    }, p?.position || '—', " · Compteur jaunes (champ.) : ", /*#__PURE__*/React.createElement("b", {
       style: {
         color: isSusp ? C.red : C.navy
       }
@@ -5033,7 +5159,10 @@ function MatchReport({
         textAlign: 'center',
         lineHeight: 1.3
       }
-    }, "SUSP", /*#__PURE__*/React.createElement("br", null), "PROCHAIN"));
+    }, "SUSP", /*#__PURE__*/React.createElement("br", null), "PROCHAIN"), e.type === 'red' && discR.after[match.id]?.[e.player]?.direct && onRedDecision && /*#__PURE__*/React.createElement(RedDecision, {
+      value: discR.after[match.id][e.player].decision,
+      onSave: n => onRedDecision(e.player, n)
+    }));
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -5628,7 +5757,7 @@ function PostMatchSection({
   const [nextTraining, setNextTraining] = useState(pm.nextTraining || '');
   const [photo, setPhoto] = useState(pm.photo || null);
   const [saved, setSaved] = useState(false);
-  const pById = useMemo(() => Object.fromEntries(players.map(p => [p.id, p])), [players]);
+  const pById = useMemo(() => Object.fromEntries(players.map(p => [p.id, resolvePlayer(p, data.playerOverrides)])), [players, data.playerOverrides]);
   const squad = (data.squad || []).filter(id => pById[id]);
   const save = () => {
     onSave({
@@ -5956,7 +6085,7 @@ function ConvocationSection({
   const [open, setOpen] = useState(false);
   const msg = () => {
     const ve = match.venue === 'DOM' ? '🏠 Domicile' : '✈️ Déplacement';
-    const pById = Object.fromEntries((players || []).map(p => [p.id, p]));
+    const pById = Object.fromEntries((players || []).map(p => [p.id, resolvePlayer(p, data.playerOverrides)]));
     const squad = (data.squad || []).map(id => pById[id]).filter(Boolean).sort(byNumber);
     const playerLines = squad.length > 0 ? ['', `👥 Joueurs convoqués (${squad.length}) :`, ...squad.map(p => `  ${numLabelOf(p)} ${splitName(p.name).last} ${splitName(p.name).first}`)] : [];
     return [`⚽ U14IP · R. Olympic Club Charleroi`, ``, `📅 ${match.day} ${match.date} · ${match.time}`, `🆚 ${match.opponent}`, `${ve} · ${match.periods.count}×${match.periods.length}min`, ``, rdvTime ? `⏰ Convocation : ${rdvTime}` : '', location ? `📍 RDV : ${location}` : '', ...playerLines, ``, `👕 Maillot + short + chaussettes + crampons`, instructions ? `📌 ${instructions}` : '', ``, `Merci de confirmer votre présence ✅`].filter(l => l !== null).join('\n').replace(/\n{3,}/g, '\n\n');
@@ -7588,6 +7717,7 @@ function SquadModal({
   onClose
 }) {
   const [sel, setSel] = useState(new Set(currentSquad));
+  const [nums, setNums] = useState({});
   const toggle = id => {
     const next = new Set(sel);
     if (next.has(id)) next.delete(id);else if (next.size < maxSquad) next.add(id);
@@ -7616,8 +7746,12 @@ function SquadModal({
   }, sorted.map(p => {
     const on = sel.has(p.id);
     const disabled = !on && sel.size >= maxSquad;
-    return /*#__PURE__*/React.createElement("button", {
+    return /*#__PURE__*/React.createElement("div", {
       key: p.id,
+      style: {
+        position: 'relative'
+      }
+    }, /*#__PURE__*/React.createElement("button", {
       onClick: () => toggle(p.id),
       disabled: disabled,
       style: {
@@ -7633,7 +7767,10 @@ function SquadModal({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        minHeight: 44
+        minHeight: 44,
+        width: '100%',
+        boxSizing: 'border-box',
+        paddingRight: 60
       }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
@@ -7665,7 +7802,31 @@ function SquadModal({
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap'
       }
-    }, splitName(p.name).first)));
+    }, splitName(p.name).first))),
+    on && /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      inputMode: "numeric",
+      min: 1,
+      max: 99,
+      placeholder: "N°",
+      value: nums[p.id] !== undefined ? nums[p.id] : (p.number ?? ''),
+      onChange: e => setNums(n => ({ ...n, [p.id]: e.target.value })),
+      style: {
+        position: 'absolute',
+        right: 6,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        width: 44,
+        height: 30,
+        textAlign: 'center',
+        fontSize: 14,
+        fontWeight: 700,
+        border: `1.5px solid ${C.orange}`,
+        borderRadius: 6,
+        background: C.white,
+        color: C.navy
+      }
+    }));
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 12,
@@ -7677,7 +7838,25 @@ function SquadModal({
     onClick: onClose,
     style: secondaryBtn()
   }, "Annuler"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => onSave([...sel]),
+    onClick: () => {
+      const out = {};
+      for (const k of Object.keys(nums)) {
+        const v = String(nums[k]).trim();
+        if (v === '') continue;
+        const n = parseInt(v);
+        if (isNaN(n) || n < 1 || n > 99) { window.alert('Numéro invalide (1 à 99)'); return; }
+        out[k] = n;
+      }
+      const finalNum = id => out[id] !== undefined ? out[id] : players.find(q => q.id === id)?.number;
+      const seen = {};
+      for (const id of sel) {
+        const n = finalNum(id);
+        if (n == null) continue;
+        if (seen[n]) { window.alert('Le numéro ' + n + ' est utilisé deux fois.'); return; }
+        seen[n] = true;
+      }
+      onSave([...sel], out);
+    },
     disabled: sel.size < 11,
     style: {
       ...primaryBtn(),
@@ -7693,6 +7872,7 @@ function LineupModal({
   onClose
 }) {
   const [sel, setSel] = useState(new Set(currentLineup));
+  const [nums, setNums] = useState({});
   const toggle = id => {
     const next = new Set(sel);
     if (next.has(id)) next.delete(id);else if (next.size < 11) next.add(id);
@@ -7721,8 +7901,12 @@ function LineupModal({
   }, squadPlayers.map(p => {
     const on = sel.has(p.id);
     const disabled = !on && sel.size >= 11;
-    return /*#__PURE__*/React.createElement("button", {
+    return /*#__PURE__*/React.createElement("div", {
       key: p.id,
+      style: {
+        position: 'relative'
+      }
+    }, /*#__PURE__*/React.createElement("button", {
       onClick: () => toggle(p.id),
       disabled: disabled,
       style: {
@@ -7738,7 +7922,10 @@ function LineupModal({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        minHeight: 44
+        minHeight: 44,
+        width: '100%',
+        boxSizing: 'border-box',
+        paddingRight: 60
       }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
@@ -7770,7 +7957,31 @@ function LineupModal({
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap'
       }
-    }, splitName(p.name).first)));
+    }, splitName(p.name).first))),
+    /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      inputMode: "numeric",
+      min: 1,
+      max: 99,
+      placeholder: "N°",
+      value: nums[p.id] !== undefined ? nums[p.id] : (p.number ?? ''),
+      onChange: e => setNums(n => ({ ...n, [p.id]: e.target.value })),
+      style: {
+        position: 'absolute',
+        right: 6,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        width: 44,
+        height: 30,
+        textAlign: 'center',
+        fontSize: 14,
+        fontWeight: 700,
+        border: `1.5px solid ${C.orange}`,
+        borderRadius: 6,
+        background: C.white,
+        color: C.navy
+      }
+    }));
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 12,
@@ -7782,7 +7993,25 @@ function LineupModal({
     onClick: onClose,
     style: secondaryBtn()
   }, "Annuler"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => onSave([...sel]),
+    onClick: () => {
+      const out = {};
+      for (const k of Object.keys(nums)) {
+        const v = String(nums[k]).trim();
+        if (v === '') continue;
+        const n = parseInt(v);
+        if (isNaN(n) || n < 1 || n > 99) { window.alert('Numéro invalide (1 à 99)'); return; }
+        out[k] = n;
+      }
+      const finalNum = id => out[id] !== undefined ? out[id] : players.find(q => q.id === id)?.number;
+      const seen = {};
+      for (const id of sel) {
+        const n = finalNum(id);
+        if (n == null) continue;
+        if (seen[n]) { window.alert('Le numéro ' + n + ' est utilisé deux fois.'); return; }
+        seen[n] = true;
+      }
+      onSave([...sel], out);
+    },
     disabled: sel.size !== 11,
     style: {
       ...primaryBtn(),
@@ -10087,7 +10316,7 @@ function LeaderboardView({
         color: C.orange,
         fontWeight: 700
       }
-    }, "#", s.number), cat === 'yellows' && s.yellows >= 3 && /*#__PURE__*/React.createElement("span", {
+    }, "#", s.number), false && /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 9,
         fontWeight: 800,
