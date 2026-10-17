@@ -1289,7 +1289,7 @@ function openPrintWindow(html) {
 }
 function printPage(title, subtitle, body) {
   const sc = window.__season || SEASON_DEFAULT;
-  openPrintWindow(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${escHtml(title)} — ${escHtml(sc.team)}</title>
+  openPrintWindow(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${escHtml(title)} ${escHtml(subtitle)} ${new Date().toISOString().slice(0, 10)} — ${escHtml(sc.team)}</title>
 <style>
   @page { size: A4; margin: 12mm 12mm; }
   ${PAGE_NUM_CSS}
@@ -6978,7 +6978,7 @@ function RotationView({
       }).join('');
       const html = `<!DOCTYPE html><html lang="fr"><head>
 <meta charset="UTF-8">
-<title>Rotation — ${s.team}</title>
+<title>Rotation ${new Date().toISOString().slice(0, 10)} — ${s.team}</title>
 <style>
   @page { size: A4; margin: 15mm 12mm; }
   ${PAGE_NUM_CSS}
@@ -7401,7 +7401,7 @@ function SeasonCharts({
       }).join('');
       const html = `<!DOCTYPE html><html lang="fr"><head>
 <meta charset="UTF-8">
-<title>Graphiques — ${s.team}</title>
+<title>Graphiques ${new Date().toISOString().slice(0, 10)} — ${s.team}</title>
 <style>
   @page { size: A4; margin: 15mm 12mm; }
   ${PAGE_NUM_CSS}
@@ -10788,7 +10788,7 @@ function StatsView({
     }).join('');
     const sum = f => played.reduce((t, x) => t + (x[f] || 0), 0);
     const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-<title>Statistiques — ${esc(sc.team)}</title>
+<title>Statistiques ${scopeLabel} ${new Date().toISOString().slice(0, 10)} — ${esc(sc.team)}</title>
 <style>
   @page { size: A4; margin: 12mm 12mm; }
   ${PAGE_NUM_CSS}
