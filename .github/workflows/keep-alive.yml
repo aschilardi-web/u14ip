@@ -1,0 +1,18 @@
+name: Garder Supabase actif
+
+on:
+  schedule:
+    - cron: '0 7 */2 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lecture de la base (1 ligne)
+        env:
+          SUPA_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          curl -sf "https://cnseblayqrmygnknyply.supabase.co/rest/v1/kv?select=key&limit=1" \
+            -H "apikey: $SUPA_KEY" \
+            -H "Authorization: Bearer $SUPA_KEY"
