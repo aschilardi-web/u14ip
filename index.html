@@ -1280,12 +1280,36 @@ function logoHtml(h) {
 function escHtml(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+// Aperçu plein écran DANS l'app (bouton Retour) : sur iPhone en mode « application », une nouvelle fenêtre n'a pas de retour
 function openPrintWindow(html) {
-  const w = window.open('', '_blank');
-  if (!w) { window.alert('Autorise les fenêtres pop-up pour générer le PDF.'); return; }
-  w.document.write(html);
-  w.document.close();
-  setTimeout(() => w.print(), 400);
+  const old = document.getElementById('print-overlay');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'print-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#e2e8f0;display:flex;flex-direction:column';
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:8px;align-items:center;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px;background:#0d2a4d';
+  const btn = (txt, bg) => {
+    const b = document.createElement('button');
+    b.textContent = txt;
+    b.style.cssText = `padding:10px 14px;border:none;border-radius:8px;font-size:14px;font-weight:700;color:#fff;background:${bg}`;
+    return b;
+  };
+  const back = btn('← Retour', '#475569');
+  const prt = btn('🖨️ Imprimer / Enregistrer en PDF', '#ea580c');
+  prt.style.flex = '1';
+  bar.appendChild(back);
+  bar.appendChild(prt);
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'flex:1;width:100%;border:none;background:#fff';
+  fr.srcdoc = html;
+  ov.appendChild(bar);
+  ov.appendChild(fr);
+  document.body.appendChild(ov);
+  const prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+  back.onclick = () => { ov.remove(); document.body.style.overflow = prevOverflow; };
+  prt.onclick = () => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { window.alert('Impression impossible : ' + e); } };
 }
 function printPage(title, subtitle, body) {
   const sc = window.__season || SEASON_DEFAULT;
@@ -5899,10 +5923,7 @@ ${pm.photo ? `
 </div>
 
 </body></html>`;
-      const w = window.open('', '_blank');
-      w.document.write(html);
-      w.document.close();
-      setTimeout(() => w.print(), 400);
+      openPrintWindow(html);
     },
     style: {
       width: '100%',
@@ -7035,10 +7056,7 @@ ${alerts.length > 0 ? `<div style="background:#fef3c7;border-left:4px solid #f59
   <span>✓ Joué · ○ Banc · – Hors feuille</span>
 </div>
 </body></html>`;
-      const w = window.open('', '_blank');
-      w.document.write(html);
-      w.document.close();
-      setTimeout(() => w.print(), 400);
+      openPrintWindow(html);
     },
     style: {
       width: '100%',
@@ -7464,10 +7482,7 @@ function SeasonCharts({
   <span>Sur ${finished.length} match${finished.length > 1 ? 's' : ''} terminé${finished.length > 1 ? 's' : ''}</span>
 </div>
 </body></html>`;
-      const w = window.open('', '_blank');
-      w.document.write(html);
-      w.document.close();
-      setTimeout(() => w.print(), 400);
+      openPrintWindow(html);
     },
     style: {
       width: '100%',
@@ -10834,11 +10849,7 @@ function StatsView({
 </table>
 <div class="footer"><span>${esc(sc.team)} · ${esc(sc.category)} · Saison ${esc(sc.year)}</span><span>Moy. = minutes par match joué · CS = clean sheets (gardiens)</span></div>
 </body></html>`;
-    const w = window.open('', '_blank');
-    if (!w) { window.alert('Autorise les fenêtres pop-up pour générer le PDF.'); return; }
-    w.document.write(html);
-    w.document.close();
-    setTimeout(() => w.print(), 400);
+    openPrintWindow(html);
   };
   return /*#__PURE__*/React.createElement("div", {
     style: {
