@@ -1302,7 +1302,8 @@ function openPrintWindow(html) {
   bar.appendChild(prt);
   const fr = document.createElement('iframe');
   fr.style.cssText = 'flex:1;width:100%;border:none;background:#fff';
-  fr.srcdoc = html;
+  // à l'écran : largeur A4 centrée (sinon la feuille s'étire sur tout l'écran)
+  fr.srcdoc = html.replace('</head>', '<style>@media screen { html { background: #cbd5e1; } body { max-width: 210mm; margin: 0 auto; padding: 8mm; background: #fff; min-height: 100vh; } }</style></head>');
   ov.appendChild(bar);
   ov.appendChild(fr);
   document.body.appendChild(ov);
@@ -5759,7 +5760,9 @@ body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 9.5
 .section { margin-bottom: 14px; }
 .sec-title { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #64748b; border-bottom: 1.5px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px; }
 
-table { width: 100%; border-collapse: collapse; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th:nth-child(1) { width: 34px; } th:nth-child(2) { width: 42px; } th:nth-child(4) { width: 46px; } th:nth-child(5) { width: 62px; } th:nth-child(6) { width: 42px; } th:nth-child(7) { width: 34px; } th:nth-child(8) { width: 46px; }
+td { overflow: hidden; }
 th { background: #0d2a4d; color: white; padding: 5px 7px; text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.5px; }
 td { padding: 5px 7px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
 tr:nth-child(even) td { background: #f8fafc; }
