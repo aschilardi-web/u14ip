@@ -1356,8 +1356,8 @@ function printMonthlyReport(allMatchData, players, monthKey) {
   const month = MATCHES.filter(m => key(m) === monthKey).sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date));
   const done = month.filter(m => allMatchData[m.id]?.status === 'finished');
   const label = new Date(monthKey + '-01').toLocaleDateString('fr-BE', { month: 'long', year: 'numeric' });
-  let v = 0, n = 0, d = 0, gf = 0, ga = 0;
-  const scorers = {}, assists = {}, cards = [];
+  let v = 0, n = 0, d = 0, gf = 0, ga = 0, cs = 0;
+  const scorers = {}, assists = {}, cards = [], incomplete = [];
   const rows = month.map(m => {
     const md = allMatchData[m.id];
     const fin = md?.status === 'finished';
@@ -1365,6 +1365,8 @@ function printMonthlyReport(allMatchData, players, monthKey) {
     if (fin) {
       const sc = matchScore(md);
       gf += sc.gf; ga += sc.ga;
+      if (sc.ga === 0) cs++;
+      if (!(md.squad || []).length) incomplete.push(m.opponent);
       const r = sc.gf > sc.ga ? 'V' : sc.gf < sc.ga ? 'D' : 'N';
       if (m.type === 'championnat') { if (r === 'V') v++; else if (r === 'D') d++; else n++; }
       res = `<td class="c"><b>${sc.gf} – ${sc.ga}</b></td><td class="c"><span class="pill ${r}">${r}</span></td>`;
@@ -1375,15 +1377,30 @@ function printMonthlyReport(allMatchData, players, monthKey) {
     }
     return `<tr><td>${escHtml(m.date)}</td><td>${m.type === 'championnat' ? 'Champ.' : 'Amical'}</td><td>${m.venue === 'DOM' ? 'Dom.' : 'Ext.'}</td><td><b>${escHtml(m.opponent)}</b></td>${res}</tr>`;
   }).join('');
-  const list = o => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([id, c]) => `${pn(parseInt(id))} (${c})`).join(' · ') || '—';
+  const list = o => {
+    const arr = Object.entries(o).sort((a, b) => b[1] - a[1]);
+    if (!arr.length) return '—';
+    const mx = arr[0][1];
+    const medals = ['🥇', '🥈', '🥉'];
+    return arr.map(([id, c], i) => `<div style="display:flex;align-items:center;gap:8px;margin:3px 0"><span style="width:20px;text-align:center;color:#94a3b8;font-size:8pt">${medals[i] || (i + 1)}</span><span style="width:170px">${pn(parseInt(id))}</span><div style="height:8px;width:${Math.round(c / mx * 140)}px;background:#ff7a1a;border-radius:3px"></div><b>${c}</b></div>`).join('');
+  };
+  const discM = computeDiscipline(allMatchData);
+  const nameOf = id => pn(id);
+  const pts = v * 3 + n, maxPts = (v + n + d) * 3;
+  const diff = gf - ga;
+  const summary = done.length ? `${label.charAt(0).toUpperCase() + label.slice(1)} : ${v} victoire${v > 1 ? 's' : ''}, ${n} nul${n > 1 ? 's' : ''}, ${d} défaite${d > 1 ? 's' : ''} en championnat · ${gf} but${gf > 1 ? 's' : ''} marqué${gf > 1 ? 's' : ''}, ${ga} encaissé${ga > 1 ? 's' : ''} (${diff > 0 ? '+' : ''}${diff}) · ${cs} match${cs > 1 ? 's' : ''} sans but encaissé.` : 'Aucun match terminé ce mois-ci.';
   const today = new Date();
   const upcoming = MATCHES.filter(m => allMatchData[m.id]?.status !== 'finished' && parseDateEU(m.date) >= new Date(today.getFullYear(), today.getMonth(), today.getDate())).sort((a, b) => parseDateEU(a.date) - parseDateEU(b.date)).slice(0, 4);
   const body = `
+<div style="background:#f0f9ff;border-left:4px solid #0d2a4d;padding:9px 12px;border-radius:0 6px 6px 0;margin-bottom:10px;font-size:10pt;line-height:1.5">${escHtml(summary)}</div>
+${incomplete.length ? `<div class="note">⚠️ Feuille de match non encodée : ${incomplete.map(escHtml).join(', ')} — buteurs et cartons peuvent être incomplets.</div>` : ''}
 <div class="kpis">
   <div class="kpi"><b>${done.length}</b><span>Matchs joués</span></div>
   <div class="kpi"><b>${v}-${n}-${d}</b><span>V-N-D (champ.)</span></div>
+  <div class="kpi"><b>${pts}/${maxPts}</b><span>Points (champ.)</span></div>
   <div class="kpi"><b>${gf}</b><span>Buts marqués</span></div>
   <div class="kpi"><b>${ga}</b><span>Buts encaissés</span></div>
+  <div class="kpi"><b>${cs}</b><span>Sans but encaissé</span></div>
 </div>
 <h2>Résultats du mois</h2>
 <table><tr><th>Date</th><th>Type</th><th>Lieu</th><th>Adversaire</th><th class="c">Score</th><th class="c"></th></tr>${rows || '<tr><td colspan="6">Aucun match ce mois-ci.</td></tr>'}</table>
@@ -1391,7 +1408,7 @@ function printMonthlyReport(allMatchData, players, monthKey) {
 <h2>Passeurs</h2><div>${list(assists)}</div>
 <h2>Cartons</h2><div>${cards.join(' · ') || 'Aucun carton.'}</div>
 <h2>Prochains matchs</h2>
-<table><tr><th>Date</th><th>Heure</th><th>Type</th><th>Lieu</th><th>Adversaire</th></tr>${upcoming.map(m => `<tr><td>${escHtml(m.date)}</td><td>${escHtml(m.time || '')}</td><td>${m.type === 'championnat' ? 'Champ.' : 'Amical'}</td><td>${m.venue === 'DOM' ? 'Domicile' : 'Extérieur'}</td><td><b>${escHtml(m.opponent)}</b></td></tr>`).join('') || '<tr><td colspan="5">—</td></tr>'}</table>`;
+<table><tr><th>Date</th><th>Heure</th><th>Type</th><th>Lieu</th><th>Adversaire</th><th>Suspendus</th></tr>${upcoming.map(m => `<tr><td>${escHtml(m.date)}</td><td>${escHtml(m.time || '')}</td><td>${m.type === 'championnat' ? 'Champ.' : 'Amical'}</td><td>${m.venue === 'DOM' ? 'Domicile' : 'Extérieur'}</td><td><b>${escHtml(m.opponent)}</b></td><td style="color:#dc2626;font-weight:700">${(discM.suspBy[m.id] || []).map(nameOf).join(', ') || '—'}</td></tr>`).join('') || '<tr><td colspan="6">—</td></tr>'}</table>${Object.keys(discM.pending).length ? `<div class="note">Rouge directe : décision de la commission en attente pour ${Object.keys(discM.pending).map(k => nameOf(parseInt(k))).join(', ')}.</div>` : ''}`;
   printPage('Rapport mensuel', label.charAt(0).toUpperCase() + label.slice(1), body);
 }
 // Discipline : compteur de jaunes, suspensions, décisions en attente
